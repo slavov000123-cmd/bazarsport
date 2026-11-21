@@ -1,33 +1,76 @@
-# BAZARSPORT Cinematic
+# BAZARSPORT
 
-Самостоятелен статичен проект без зависимости. Българският е основен език. Раздели: прогнози, корнери, статистика, резултати; работещи табове, клавиатурна навигация, търсене и филтър по първенство. Адаптивен дизайн. Изцяло локални SVG изображения, включително оригинална илюстрация на стадион.
+Source of the existing BAZARSPORT Site, synchronized from deployed Sites version 16
+(commit `fc0890f7ca34f4e3904c2b9038eaf5f0f72f7331`) before applying the changes in this branch.
+This is not a new website or a new database. Production remains https://bazarsport.eu.
 
-## Стартиране
+## Architecture and entry points
 
-```sh
-python3 -m http.server 8080
-```
+- `public/index.html`, `public/style.css`: existing cinematic homepage and visual identity.
+- `app/predictions`: today's approved predictions, Europe/Sofia calendar day.
+- `app/results`: compact dated history (league, teams, market/choice, odds, slip outcome).
+- `app/statistics`: verified WIN/LOSS/VOID, success rate and ROI.
+- `app/mobile`: existing installable PWA, with separate prediction/result/statistic tabs.
+- `app/admin`: existing owner-only editorial panel at https://bazarsport.eu/admin.
+- `app/api/drafts`: owner-only creation/editing/approval/rejection.
+- `app/api/public`: published data only; excludes owner identities and slip photographs.
+- `app/mcp`: ChatGPT integration, creates drafts only; never approves or publishes.
+- `lib/editorial.ts`: validation, settlement, reporting and audit events.
+- `db/schema.ts`, `drizzle/`: existing Cloudflare D1 tables and initial migration.
+- `worker/index.ts`: Vinext/React server on Cloudflare Workers via Sites.
+- `.openai/hosting.json`: **existing** Site ID and DB binding; preserve it.
+- `legacy-static/`: untouched files from the previous GitHub snapshot, retained for reference.
 
-Отворете http://localhost:8080. Не отваряйте index.html директно с file://, защото браузърът блокира зареждането на JSON.
+GitHub previously held a flat static export, with broken paths to `assets/`,
+`data/` and `predictions/`, and no admin or database. The production source already
+had those features. This branch brings them into GitHub without copying runtime data.
+The root `index.html` redirects GitHub Pages visitors to the existing live Site;
+GitHub Pages cannot run the authenticated backend or D1 database.
 
-## Данни
+## Development / validation
 
-`data/feed.json` умишлено съдържа празни масиви. Няма фиктивни прогнози, резултати, коефициенти или успеваемост. Приложението не е свързано с live доставчик. За всеки запис са необходими низовете `home`, `away`, `league`, `text`, `source`, `updatedAt` (ISO 8601). Глобалните `source` и `updatedAt` обозначават източника и датата на синхронизация. Не добавяйте API ключове в публичен JSON или JavaScript. Бъдеща интеграция трябва да извлича лицензирани данни през сървър и да публикува нормализиран feed. За момента обновяването е ръчно.
+Node >=22.13.0. Run `npm run install:ci`, `npm run typecheck`, `npm test`,
+`npm run build`. Use `npm run dev` for local development. For a local DB use Wrangler's
+**local** D1 migration command against binding `DB`; never run migrations against production
+as part of reviewing this PR. No live database is embedded in this repository.
+Without a configured local DB, public API requests fail and the UI reports unavailable data.
 
-## Дизайн и ограничения
+## Authentication / hosting boundary
 
-Оригиналният частен Sites сайт не беше достъпен за оглед или миграция. Този проект следва предоставеното описание и познатите раздели; не съдържа мигрирана база данни. На 27 октомври е получен образецът с четирите концепции. `assets/mark.svg` е векторна интерпретация на избрания Concept 1 (B с възходящи колони), а не оригинален векторен файл от дизайнера. Цветовете и надписът са съобразени с образеца. Стадионът е SVG илюстрация. Няма акаунти, платени абонаменти или администраторски бекенд. Английски превод не е включен в този етап.
+Production relies on Sites' trusted gateway to verify ChatGPT sign-in and overwrite
+`oai-authenticated-user-*` headers. `OWNER_EMAIL` is a protected runtime variable;
+missing configuration denies all writes. API mutations also reject cross-site requests.
+Do not expose the Worker directly on a host that accepts spoofed identity headers.
+A move away from Sites requires replacing the identity adapter with verified sessions.
+No credentials, owner email, database contents or API keys belong in GitHub.
 
-## GitHub и собствен домейн
+## Editorial and reporting rules
 
-Създайте празно repository `bazasport` във вашия GitHub профил. Качете съдържанието на тази папка в корена му. За GitHub Pages изберете Settings → Pages → Deploy from a branch → main / root. `.nojekyll` позволява обикновено статично публикуване. Може да използвате и всеки статичен хостинг без build команда.
+All new records are drafts. The owner uses **Одобри и публикувай**, **Редактирай** or
+**Отхвърли**. Upload a PNG/JPEG/WebP slip up to 500 KB (or supply its HTTPS URL).
+Only the owner can see stored slip images. Existing category IDs remain `elite` and
+`quantbet`; visible names are CORNER HUNTER and BET STRIKE.
 
-За bazasport.com първо потвърдете собствеността и DNS конфигурацията в избрания хостинг, после задайте custom domain и включете HTTPS. Домейнът не е конфигуриран или публикуван от този проект. Не добавяме CNAME предварително, за да не обвързваме непотвърден домейн.
+CORNER HUNTER accepts owner-slip odds, requires fixture confirmation and 1H corners
+3-way W1; a first-half corner draw loses. BET STRIKE retains its odds-source rules.
+Results require evidence and owner approval. A confirmed result moves a slip out of
+predictions immediately; old unverified slips remain explicitly UNVERIFIED in history.
+No result is inferred merely because kickoff has passed. No external automatic sports
+result provider is connected by this PR.
 
-## Проверки
+Statistics use the entire published history, deduplicate results and exclude orphans
+and UNVERIFIED. Fixed virtual stake: 1 per slip. Success rate = WIN/(WIN+LOSS).
+ROI = net profit / all verified stakes, including refunded VOID stakes.
+A partially void combination must not be recorded as a full-odds WIN; per-leg void
+recalculation is not implemented. Published historical records are not deleted.
 
-`node --check app.js` проверява синтаксиса (използвайте Node 20+ с package.json). Ръчно проверете при 390px и 1440px: навигация, табове, клавиатура, търсене, празен feed и неуспешно зареждане. Браузърна проверка не е извършена в средата за създаване.
+Team logos are optional verified HTTPS URLs (`homeLogo`/`awayLogo`) entered by the owner
+in the existing form or MCP draft. Failed images fall back gracefully. No unverified
+club-to-logo mapping or external paid subscription is added.
 
+## Release
 
-## Прогнози
-Бутонът „Виж прогнозите“ и навигацията „Прогнози“ отварят predictions/. Две безплатни колонки за корнери през първото полувреме и една за други залози. Публикуването на селекции е ръчно в predictions/betslip.js. Засега колонките са празни.
+This PR does **not** deploy. Tests/builds do not publish, and the CI workflow has no
+production credentials or deployment step. Merge/release only after owner approval.
+Deploy the reviewed source to the **existing** Sites project and existing D1 binding;
+never create a replacement database or rerun the initial migration on an existing DB.
