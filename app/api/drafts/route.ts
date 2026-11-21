@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   try {
     const data = await readEntries();
     return NextResponse.json({ entries: data.map(entry => ({
-      ...entry, ownerConfirmationValidation: entry.status === "draft" && entry.kind === "prediction" && (entry.payload as PredictionPayload).category === "elite" ? publicationErrors(entry as EntryInput, true) : null, validation: entry.status === "draft" ? publicationErrors(entry as EntryInput) : [],
+      ...entry, ownerConfirmationValidation: entry.status === "draft" && entry.kind === "prediction" && (entry.payload as PredictionPayload).category === "elite" ? publicationErrors(entry as EntryInput, true) : null, manualApprovalValidation: entry.status === "draft" && entry.kind === "prediction" ? publicationErrors(entry as EntryInput, false, true) : null, validation: entry.status === "draft" ? publicationErrors(entry as EntryInput) : [],
     })) });
   }
   catch { return NextResponse.json({ error: "Грешка при зареждане на черновите." }, { status: 500 }); }
