@@ -34,6 +34,7 @@ export type PredictionPayload = {
   risk: string;
   selections: PredictionSelection[];
   virtualStake?: number;
+  approvalMode?: "owner_unverified";
 };
 
 export type ResultPayload = {
@@ -51,14 +52,14 @@ export type EntryInput = {
   payload: PredictionPayload | ResultPayload;
 };
 
-export function publicationErrors(input: EntryInput, ownerConfirmsFixtures = false): string[] {
+export function publicationErrors(input: EntryInput, ownerConfirmsFixtures = false, manualApproval = false): string[] {
   const errors: string[] = [];
   if (!input.title?.trim()) errors.push("Заглавието е задължително.");
   if (input.kind === "prediction") {
     const data = input.payload as PredictionPayload;
     if (!["quantbet", "elite"].includes(data.category)) errors.push("Невалидна категория.");
-    if (!data.analysis?.trim()) errors.push("Добави аргументиран анализ.");
-    if (!data.risk?.trim()) errors.push("Добави рисковете.");
+    if (!manualApproval && !data.analysis?.trim()) errors.push("Добави аргументиран анализ.");
+    if (!manualApproval && !data.risk?.trim()) errors.push("Добави рисковете.");
     if (!Array.isArray(data.selections) || data.selections.length < 1 || data.selections.length > 3) {
       errors.push("Необходими са от 1 до 3 селекции.");
     } else for (const [i, match] of data.selections.entries()) {
@@ -70,12 +71,12 @@ export function publicationErrors(input: EntryInput, ownerConfirmsFixtures = fal
       else if (kick <= Date.now()) errors.push("Селекция " + n + ": мачът вече е започнал; не може да бъде публикуван като предстоящ.");
       const ownerSlip = data.category === "elite" && match.oddsSource === "owner_slip";
       if (ownerSlip) {
-        if (!Number.isFinite(Date.parse(match.oddsReceivedAt || ""))) errors.push("Селекция " + n + ": липсва дата и час на получаване на фиша.");
+        if (!manualApproval && !Number.isFinite(Date.parse(match.oddsReceivedAt || ""))) errors.push("Селекция " + n + ": липсва дата и час на получаване на фиша.");
         if (match.slipImage && !/^https:\/\/|^data:image\/(png|jpeg|webp);base64,/.test(match.slipImage)) errors.push("Невалидна снимка на фиша.");
       }
-      if (!ownerSlip && !Number.isFinite(Date.parse(match.oddsCheckedAt))) errors.push("Селекция " + n + ": липсва час на проверката на коефициента.");
-      if (!ownerSlip && !independentSources(match.sources)) errors.push("Селекция " + n + ": нужни са два независими източника за коефициента.");
-      if (data.category === "elite" && !ownerConfirmsFixtures && (!match.fixtureVerified || !Number.isFinite(Date.parse(match.fixtureCheckedAt || "")) || !fixtureSource(match.fixtureSources))) errors.push("Селекция " + n + ": потвърди реалната среща и началния час с надежден източник.");
+      if (!manualApproval && !ownerSlip && !Number.isFinite(Date.parse(match.oddsCheckedAt))) errors.push("Селекция " + n + ": липсва час на проверката на коефициента.");
+      if (!manualApproval && !ownerSlip && !independentSources(match.sources)) errors.push("Селекция " + n + ": нужни са два независими източника за коефициента.");
+      if (data.category === "elite" && !manualApproval && !ownerConfirmsFixtures && (!match.fixtureVerified || !Number.isFinite(Date.parse(match.fixtureCheckedAt || "")) || !fixtureSource(match.fixtureSources))) errors.push("Селекция " + n + ": потвърди реалната среща и началния час с надежден източник.");
       if (data.category === "elite" && (!/3[- ]?(?:way|посочен)|трипосочен/i.test(match.market) || match.choice !== "W1")) errors.push("CORNER HUNTER изисква 3-way W1; равенството по корнери 1П е LOSS.");
       if (data.category === "elite" && (!/корнер|corner/i.test(match.market) || !/първ|1п|1h/i.test(match.market))) {
         errors.push("CORNER HUNTER допуска само корнери за първото полувреме.");
@@ -161,15 +162,16 @@ export async function editDraft(id: string, input: EntryInput, actor: string) {
   return { id, validation: publicationErrors(input) };
 }
 
-export async function decideDraft(id: string, action: "publish" | "reject", actor: string, ownerConfirmsFixtures = false) {
+export async function decideDraft(id: string, action: "publish" | "reject", actor: string, ownerConfirmsFixtures = false, manualApproval = false) {
   const db = getDb();
   const rows = await db.select().from(entries).where(eq(entries.id, id)).limit(1);
   const row = rows[0];
   if (!row || row.status !== "draft") throw Error("Черновата не е налична или вече е обработена.");
   const input = { kind: row.kind, title: row.title, payload: JSON.parse(row.payload) } as EntryInput;
   if (action === "publish") {
-    const canConfirmFixtures = ownerConfirmsFixtures === true && input.kind === "prediction" && (input.payload as PredictionPayload).category === "elite";
-    const errors = publicationErrors(input, canConfirmFixtures);
+    const canManualApprove = manualApproval === true && input.kind === "prediction";
+    const canConfirmFixtures = !canManualApprove && ownerConfirmsFixtures === true && input.kind === "prediction" && (input.payload as PredictionPayload).category === "elite";
+    const errors = publicationErrors(input, canConfirmFixtures, canManualApprove);
     if (row.kind === "result") {
       const ref = await db.select().from(entries).where(and(eq(entries.id, row.referenceId || ""), eq(entries.kind, "prediction"), eq(entries.status, "published"))).limit(1);
       if (!ref[0]) errors.push("Резултатът трябва да е свързан с публикувана прогноза.");
@@ -189,6 +191,9 @@ export async function decideDraft(id: string, action: "publish" | "reject", acto
       if (previous.length) errors.push("За тази прогноза вече има публикуван резултат.");
     }
     if (errors.length) throw Error(errors.join(" "));
+    if (canManualApprove) {
+      (input.payload as PredictionPayload).approvalMode = "owner_unverified";
+    }
     if (canConfirmFixtures) {
       const checkedAt = new Date().toISOString();
       (input.payload as PredictionPayload).selections = (input.payload as PredictionPayload).selections.map(s => ({...s, fixtureVerified:true, fixtureCheckedAt:checkedAt, fixtureVerificationMethod:"owner_confirmation"}));
@@ -197,12 +202,12 @@ export async function decideDraft(id: string, action: "publish" | "reject", acto
   const now = new Date().toISOString();
   const changed = await db.update(entries).set({
     status: action === "publish" ? "published" : "rejected",
-    ...(ownerConfirmsFixtures === true && action === "publish" && input.kind === "prediction" && (input.payload as PredictionPayload).category === "elite" ? {payload:JSON.stringify(input.payload)} : {}),
+    ...(action === "publish" && (manualApproval === true && input.kind === "prediction" || ownerConfirmsFixtures === true && input.kind === "prediction" && (input.payload as PredictionPayload).category === "elite") ? {payload:JSON.stringify(input.payload)} : {}),
     approvedBy: actor, publishedAt: action === "publish" ? now : null,
     updatedAt: now, revision: row.revision + 1,
   }).where(and(eq(entries.id, id), eq(entries.status, "draft"))).returning({ id: entries.id });
   if (!changed.length) throw Error("Черновата е променена; обнови екрана.");
-  await recordAudit(id, actor, action === "publish" ? (ownerConfirmsFixtures === true && input.kind === "prediction" && (input.payload as PredictionPayload).category === "elite" ? "published_by_owner_with_fixture_confirmation" : "published_by_owner") : "rejected_by_owner");
+  await recordAudit(id, actor, action === "publish" ? (manualApproval === true && input.kind === "prediction" ? "published_by_owner_unverified" : ownerConfirmsFixtures === true && input.kind === "prediction" && (input.payload as PredictionPayload).category === "elite" ? "published_by_owner_with_fixture_confirmation" : "published_by_owner") : "rejected_by_owner");
   return { id, status: action === "publish" ? "published" : "rejected" };
 }
 
