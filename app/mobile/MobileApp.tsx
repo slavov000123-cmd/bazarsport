@@ -1,0 +1,46 @@
+'use client';
+import ResultsHistory from '@/components/ResultsHistory';
+import {useSofiaDay} from '@/components/useSofiaDay';
+import {todayPredictions,sofiaDay,slipDay} from '@/lib/prediction-views';
+import {categoryLabel} from "@/lib/categories";
+import {useCallback,useEffect,useState} from 'react';
+import {ListChecks,ChartNoAxesCombined,Trophy,Send,Download,RefreshCw,ArrowUpRight,X,ChevronRight} from 'lucide-react';
+import MatchLeague from '@/components/MatchLeague';
+import MatchTeams from '@/components/MatchTeams';
+import type {PredictionPayload,ResultPayload} from '@/lib/editorial';
+import './mobile.css';
+import {useLanguage, LanguageSwitch} from '@/components/LanguageProvider';
+type Entry<T>={id:string;title:string;payload:T;publishedAt:string};
+type Report={today?:string;predictions:Entry<PredictionPayload>[];results:Entry<ResultPayload>[];metrics:{wins:number;losses:number;voids:number;winRate:number|null;roi:number|null}};
+type InstallEvent=Event&{prompt:()=>Promise<void>;userChoice:Promise<{outcome:string}>};
+export default function MobileApp(){
+ const {t,language}=useLanguage();
+ const time=(s:string)=>Number.isFinite(Date.parse(s))?new Intl.DateTimeFormat(language === 'en' ? 'en-GB' : 'bg-BG',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',timeZone:'Europe/Sofia'}).format(new Date(s)):t("Непотвърден час");
+const outcomes:Record<string,string>={WIN:t("Печеливш"),LOSS:t("Губещ"),VOID:t("Анулиран"),UNVERIFIED:t("Непотвърден")};
+
+ const [tab,setTab]=useState('predictions'),[filter,setFilter]=useState('all');
+ const [report,setReport]=useState<Report|null>(null),[busy,setBusy]=useState(true),[error,setError]=useState(''),[updated,setUpdated]=useState('');
+ const [install,setInstall]=useState<InstallEvent|null>(null),[help,setHelp]=useState(false),[installed,setInstalled]=useState(false);
+ const refresh=useCallback(async()=>{setBusy(true);setError('');try{const res=await fetch('/api/public',{cache:'no-store'});if(!res.ok)throw Error();const data=await res.json() as Report;if(!Array.isArray(data.predictions)||!Array.isArray(data.results)||!data.metrics)throw Error();setReport(data);setUpdated(new Date().toLocaleTimeString(language === 'en' ? 'en-GB' : 'bg-BG',{hour:'2-digit',minute:'2-digit'}));}catch{setError("Няма връзка с прогнозите. Провери интернет и опитай отново.");}finally{setBusy(false);}},[language]);
+ useEffect(()=>{void refresh();const timer=setInterval(()=>{if(document.visibilityState==='visible')void refresh();},60000);const visible=()=>{if(document.visibilityState==='visible')void refresh();};document.addEventListener('visibilitychange',visible);return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',visible);};},[refresh]);
+ useEffect(()=>{setInstalled(matchMedia('(display-mode: standalone)').matches);const prompt=(e:Event)=>{e.preventDefault();setInstall(e as InstallEvent);};const done=()=>{setInstalled(true);setInstall(null);setHelp(false);};window.addEventListener('beforeinstallprompt',prompt);window.addEventListener('appinstalled',done);if('serviceWorker'in navigator)navigator.serviceWorker.register('/mobile-sw.js',{scope:'/'}).catch(()=>{});return()=>{window.removeEventListener('beforeinstallprompt',prompt);window.removeEventListener('appinstalled',done);};},[]);
+ const add=async()=>{if(install){await install.prompt();const choice=await install.userChoice;if(choice.outcome==='accepted')setHelp(false);setInstall(null);}else setHelp(true);};
+ const today=useSofiaDay();
+ const picks=todayPredictions(report?.predictions||[],today,report?.results||[]).filter(p=>filter==='all'||p.payload.category===filter);
+ const metrics=report?.metrics;
+ return <div className="bs-app"><div className="bs-shell">
+ <header className="bs-header"><a href="/" aria-label={t("BAZARSPORT сайт")} className="bs-brand"><img src="/assets/mark.svg" alt=""/><span>BAZAR<b>SPORT</b><small>{t("ТВОЯТ ПОГЛЕД ВЪРХУ ИГРАТА")}</small></span></a><LanguageSwitch/><button className="bs-icon" aria-label={t("Обнови прогнозите")} disabled={busy} onClick={()=>void refresh()}><RefreshCw size={19} className={busy?'bs-spin':''}/></button></header>
+ <main className="bs-content">
+ <div className="bs-heading"><p className="bs-eyebrow">FOOTBALL INTELLIGENCE</p><h1>{tab==='predictions'?t("Днешните прогнози"):tab==='results'?t("Крайният резултат."):t("Числата говорят.")}</h1><p className="bs-muted">{tab==='predictions'?t("Един поглед. Всички селекции."):tab==='results'?t("История на публикуваните талони."):t("Прозрачна статистика на виртуалните прогнози.")}</p></div>
+ {!installed&&<button className="bs-install" onClick={()=>void add()}><span className="bs-install-icon"><Download size={21}/></span><span><strong>{t("BAZARSPORT на телефона")}</strong><small>{t("Добави приложението на началния екран")}</small></span><ChevronRight size={18}/></button>}
+ {help&&<section role="dialog" aria-label={t("Добавяне на приложението")} className="bs-help"><button className="bs-icon" aria-label={t("Затвори указанията")} onClick={()=>setHelp(false)}><X size={18}/></button><h2>{t("Добави на началния екран")}</h2><p><b>Android:</b>  {t("отвори тази страница в Chrome → меню ⋮ → „Добавяне към началния екран“ или „Инсталиране на приложение“.")}</p><p><b>iPhone:</b>  {t("отвори в Safari → „Споделяне“ → „Добави към Начален екран“.")}</p><p>{t("Ако си в браузъра на Facebook или ChatGPT, първо избери „Отвори в браузър“.")}</p></section>}
+ {error&&<div className="bs-error" role="alert">{t(error)}{report&&<span>  {t("Показаните данни са от последното успешно обновяване в")} {updated}.</span>}<button onClick={()=>void refresh()} disabled={busy}>{t("Опитай отново")}</button></div>}
+ {busy&&!report&&!error&&<p className="bs-empty" role="status">{t("Зареждане на прогнозите…")}</p>}
+ {tab==='predictions'&&<><div className="bs-filters" aria-label={t("Категория прогнози")}>{[['all',t("Всички")],['elite',t("🎯 CORNER HUNTER")],['quantbet','⚡ BET STRIKE']].map(([id,label])=><button key={id} aria-pressed={filter===id} className={filter===id?'active':''} onClick={()=>setFilter(id)}>{label}</button>)}</div><div className="bs-section-label"><span>{t("ПУБЛИКУВАНИ ТАЛОНИ")}</span><span>{picks.length.toString().padStart(2,'0')}</span></div><div className="bs-cards">{picks.map(p=>{const odds=p.payload.selections.reduce((v,s)=>v*s.odds,1);const result=report?.results.find(r=>r.payload.predictionId===p.id);return <article className="bs-card" key={p.id}><div className="bs-card-top"><span className="bs-tag">{p.payload.category==='elite'?t("🎯 CORNER HUNTER"):t("⚡ BET STRIKE")}</span><span className="bs-odds">{odds.toFixed(2)}</span></div><h2>{slipDay(p) ? new Intl.DateTimeFormat(language==='en'?'en-GB':'bg-BG',{dateStyle:'long',timeZone:'Europe/Sofia'}).format(new Date(slipDay(p)+'T12:00:00Z')) : t('Непотвърдена дата')}</h2><p className="bs-muted">{t("Общ коефициент на целия талон")}{p.payload.selections.some(s=>sofiaDay(s.kickoff)!==today) && <> · {t("Показани са само днешните срещи")}</>}</p><div className="bs-matches">{p.payload.selections.filter(s=>sofiaDay(s.kickoff)===today).map((s,i)=><div className="bs-match" key={i}><div className="bs-match-meta"><span><MatchLeague {...s}/></span><time>{time(s.kickoff)}</time></div><div className="bs-team-row"><div><MatchTeams {...s}/></div><b>@{s.odds.toFixed(2)}</b></div><p className="bs-market">{t(s.market)} · <b>{t(s.choice)}</b></p></div>)}</div><footer><span>{t("Часове: България")}</span>{result?<span className={'bs-status '+result.payload.outcome}>{outcomes[result.payload.outcome]}</span>:<span>{t("Очаква резултат")}</span>}</footer></article>;})}</div>{report&&!picks.length&&<p className="bs-empty">{t("Няма публикувани прогнози за днес")}</p>}</>}
+ {tab==='results'&&report&&<ResultsHistory predictions={report.predictions} results={report.results} today={today}/>}
+ {tab==='stats'&&report&&<><div className="bs-stats">{[[t("Печеливши"),metrics?.wins??0],[t("Губещи"),metrics?.losses??0],[t("Успеваемост"),metrics?.winRate==null?'—':metrics.winRate+'%'],['ROI',metrics?.roi==null?'—':metrics.roi+'%']].map(([label,value])=><div className="bs-stat" key={label}><strong>{value}</strong><span>{label}</span></div>)}</div><section className="bs-note"><h2>{t("Проверими резултати")}</h2><p>{t("Фиксиран виртуален залог: 1 единица на талон. Анулирани:")} {metrics?.voids??0}{t(". Непотвърдените резултати не участват в успеваемостта и ROI.")}</p></section></>}
+ <a className="bs-telegram" href="https://t.me/bazarsports" target="_blank" rel="noopener noreferrer"><Send size={20}/><span>{t("BAZARSPORT в Telegram")}<small>@bazarsports</small></span><ArrowUpRight size={20}/></a>
+ <p className="bs-disclaimer">{t("18+ · Виртуални прогнози. Без гарантирана печалба.")}</p>{updated&&<p className="bs-updated">{t("Последно обновяване ·")} {updated}</p>}
+ </main><nav className="bs-bottom" aria-label={t("Основна навигация")}>{[['predictions',t("Прогнози"),ListChecks],['results',t("Резултати"),Trophy],['stats',t("Статистика"),ChartNoAxesCombined]].map(([id,label,Icon])=>{const NavIcon=Icon as typeof Trophy;return <button key={String(id)} aria-current={tab===id?'page':undefined} className={tab===id?'active':''} onClick={()=>{setTab(String(id));window.scrollTo({top:0,behavior:'smooth'});}}><NavIcon size={22}/><span>{String(label)}</span></button>;})}</nav>
+ </div></div>;
+}
