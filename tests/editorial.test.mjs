@@ -76,6 +76,32 @@ const confirmed=JSON.parse(updates[0].payload).selections[0];
 assert.equal(confirmed.fixtureVerificationMethod,'owner_confirmation');assert.equal(confirmed.oddsSource,'owner_slip');assert.equal(confirmed.fixtureVerified,true);assert.ok(confirmed.fixtureCheckedAt);
 console.log('PASS: explicit owner confirmation unblocks only missing fixture checks; provenance recorded; odds, market, kickoff and BET STRIKE gates preserved');
 
+// Manual publication skips optional source and timestamp gates, not basic validity.
+const manual = structuredClone(missingFixtures);
+manual.payload.analysis='';
+manual.payload.risk='';
+for(const selection of manual.payload.selections){
+  selection.oddsSource='independent_urls';
+  selection.sources=[];
+  delete selection.oddsCheckedAt;
+  delete selection.oddsReceivedAt;
+}
+assert.ok(publicationErrors(manual).length>0,'Source checks still apply to standard publication');
+assert.equal(publicationErrors(manual,false,true).length,0,'Owner can manually publish without independent sources');
+const manualStarted=structuredClone(manual);
+manualStarted.payload.selections[0].kickoff='2020-01-01T12:00:00Z';
+assert.ok(publicationErrors(manualStarted,false,true).some(e=>e.includes('започнал')),'Manual approval cannot backdate');
+const manualInvalid=structuredClone(manual);
+manualInvalid.payload.selections[0].choice='DNB';
+assert.ok(publicationErrors(manualInvalid,false,true).some(e=>e.includes('3-way')),'Corner Hunter market safety remains');
+assert.ok(publicationErrors(result,false,true).length,'Results remain verified independently');
+current={id:'manual',kind:'prediction',status:'draft',title:manual.title,payload:JSON.stringify(manual.payload),revision:1};
+updates=[];
+await context.exports.decideDraft(current.id,'publish','owner',false,true);
+assert.equal(updates[0].status,'published');
+assert.equal(JSON.parse(updates[0].payload).approvalMode,'owner_unverified');
+console.log('PASS: manual unverified publishing, audit provenance, future kickoff and corner market gates');
+
 parent.createdBy='private-owner';parent.approvedBy='private-owner';
 const privatePayload=JSON.parse(parent.payload);privatePayload.selections[0].slipImage='data:image/png;base64,c2VjcmV0';parent.payload=JSON.stringify(privatePayload);
 context.getDb=()=>({select:()=>({from:()=>({where:()=>({orderBy:async()=>reportRows})})})});

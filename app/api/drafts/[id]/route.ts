@@ -22,9 +22,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (!actor) return NextResponse.json({ error: "Забранен достъп." }, { status: 403 });
   try {
     const { id } = await context.params;
-    const { action, confirmFixtures } = await request.json() as { action: "publish" | "reject"; confirmFixtures?: boolean };
+    const { action, confirmFixtures, manualApproval } = await request.json() as { action: "publish" | "reject"; confirmFixtures?: boolean; manualApproval?: boolean };
     if (!["publish", "reject"].includes(action)) throw Error("Непознато действие.");
-    return NextResponse.json(await decideDraft(id, action, actor, confirmFixtures === true));
+    return NextResponse.json(await decideDraft(id, action, actor, confirmFixtures === true, manualApproval === true));
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Грешка." }, { status: 400 });
   }

@@ -117,6 +117,7 @@ export const translations: Record<string,string> = {
   "🎯 CORNER HUNTER": "🎯 CORNER HUNTER",
   "⚡ BET STRIKE": "⚡ BET STRIKE",
   "Публикувано:": "Published:",
+  "Ръчно одобрено · без независима проверка": "Manually approved · not independently verified",
   "Виртуална прогноза · 18+": "Virtual prediction · 18+",
   "Виртуална статистика": "Virtual statistics",
   "Успеваемост": "Win rate",
