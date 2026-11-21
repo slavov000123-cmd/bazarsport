@@ -14,7 +14,7 @@ type Selection = {
 type PredictionData = { category: "quantbet" | "elite"; analysis: string; risk: string; selections: Selection[] };
 type ResultData = { predictionId: string; outcome: string; checkedAt: string; sources: string[]; description: string; cornerResults?: { home: number; away: number }[] };
 type Entry = { id: string; kind: string; title: string; status: string; payload: PredictionData | ResultData;
-  createdAt: string; updatedAt: string; publishedAt: string | null; validation: string[]; ownerConfirmationValidation?: string[] | null };
+  createdAt: string; updatedAt: string; publishedAt: string | null; validation: string[]; ownerConfirmationValidation?: string[] | null; manualApprovalValidation?: string[] | null };
 type EntryForm = { kind: "prediction" | "result"; title: string; payload: PredictionData | ResultData };
 
 const initialSelection = (): Selection => ({ home: "", away: "", league: "", kickoff: "", market: "", choice: "", odds: 1, oddsCheckedAt: "", sources: ["", ""] });
@@ -37,6 +37,7 @@ export default function AdminBoard({ owner }: { owner: string }) {
   const [tab, setTab] = useState("draft");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [decisionError, setDecisionError] = useState<{ id: string; message: string } | null>(null);
   const [busy, setBusy] = useState("");
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<EntryForm>(emptyForm());
@@ -82,21 +83,30 @@ export default function AdminBoard({ owner }: { owner: string }) {
     finally { setBusy(""); }
   };
   const decision = async (record: Entry, action: "publish" | "reject") => {
-    const confirmFixtures = action === "publish" && record.kind === "prediction" && (record.payload as PredictionData).category === "elite" && !!record.validation?.length && record.ownerConfirmationValidation?.length === 0;
-    if (confirmFixtures && !confirm("Потвърждавам лично, че следните срещи и начални часове са верни:\n\n" + (record.payload as PredictionData).selections.map(s=>s.home+" — "+s.away+" · "+bgTime(s.kickoff)).join("\n") + "\n\nТова ще бъде записано като потвърждение от собственика, не като независима проверка. Да потвърдя и публикувам?")) return;
-    if (action === "publish" && !confirmFixtures && !confirm("Да публикувам ли „" + record.title + "“? Това ще стане видимо в сайта.")) return;
+    const manualApproval = action === "publish" && record.kind === "prediction";
+    setDecisionError(null);
+    if (manualApproval && record.manualApprovalValidation?.length) {
+      const message = "Преди публикуване поправи: " + record.manualApprovalValidation.join(" ");
+      setDecisionError({id: record.id, message});
+      return;
+    }
+    if (action === "publish" && !manualApproval && !confirm("Да публикувам ли „" + record.title + "“?")) return;
     if (action === "reject" && !confirm("Да отхвърля ли черновата „" + record.title + "“?")) return;
     setBusy(record.id); setError(""); setSuccess("");
     try {
       const res = await fetch("/api/drafts/" + record.id, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, confirmFixtures }),
+        body: JSON.stringify({ action, manualApproval }),
       });
-      const response = await res.json() as { error?: string };
-      if (!res.ok) throw Error(response.error || "Неуспешно действие.");
+      const response = await res.json().catch(() => null) as {error?: string} | null;
+      if (!res.ok) throw Error(response?.error || "Неуспешно действие (HTTP " + res.status + "). Обнови страницата или влез отново.");
       await refresh();
-      feedback(action === "publish" ? "Публикувано след твоето одобрение." : "Черновата е отхвърлена.");
-    } catch (e) { feedback(e instanceof Error ? e.message : "Грешка.", true); }
+      feedback(action === "publish" ? (manualApproval ? "Публикувано с твое одобрение (без независима проверка)." : "Резултатът е публикуван.") : "Черновата е отхвърлена.");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Грешка при публикуване.";
+      setDecisionError({id: record.id, message});
+      feedback(message, true);
+    }
     finally { setBusy(""); }
   };
   const editing = (record: Entry) => {
@@ -208,8 +218,12 @@ export default function AdminBoard({ owner }: { owner: string }) {
               <div className="mt-2 flex flex-wrap gap-3 text-xs">{(s.sources||[]).filter(Boolean).map((u,j)=><a key={j} className="text-sky-300 underline" href={safeSourceUrl(u)} target="_blank" rel="noopener noreferrer">Източник {j+1}</a>)}</div>
             </div>)}<p className="text-sm font-bold">Резултат: {records.find(entry=>entry.kind==="result" && entry.status==="published" && (entry.payload as ResultData).predictionId===r.id) ? (records.find(entry=>entry.kind==="result" && entry.status==="published" && (entry.payload as ResultData).predictionId===r.id)!.payload as ResultData).outcome : "UNVERIFIED"}</p><p className="font-bold text-lime-300">Общ коефициент: {Number((r.payload as PredictionData).selections.reduce((v,s)=>v*s.odds,1).toFixed(4))}</p><p className="text-sm text-white/65">{(r.payload as PredictionData).analysis}</p><p className="text-sm text-amber-200/70">Риск: {(r.payload as PredictionData).risk}</p></div> :
               <div className="mt-4 text-sm text-white/70"><b className="text-lime-300">{(r.payload as ResultData).outcome}</b> · {(r.payload as ResultData).description}<p className="mt-1 text-xs">Източници: {(r.payload as ResultData).sources?.map((u,i)=><a key={i} className="ml-3 text-sky-300 underline" href={safeSourceUrl(u)} target="_blank" rel="noreferrer">{i+1}</a>)}</p></div>}
-            {r.validation?.length>0 && <div className="mt-4 rounded-xl bg-amber-400/10 px-4 py-3 text-sm text-amber-100"><b>{r.ownerConfirmationValidation?.length===0 ? "Остава твоето потвърждение за срещите и часовете:" : "Не е готово за публикуване:"}</b><ul className="mt-2 list-disc space-y-1 pl-5">{r.validation.map((item,i)=><li key={i}>{item}</li>)}</ul></div>}
-            {r.status==="draft" && <div className="mt-5 flex flex-wrap gap-2"><button disabled={Boolean(busy)||Boolean(r.validation?.length && r.ownerConfirmationValidation?.length !== 0)} className="rounded-lg bg-lime-400 px-4 py-2 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-35" onClick={()=>void decision(r,"publish")}>{r.validation?.length && r.ownerConfirmationValidation?.length===0 ? "✓ Потвърди срещите и публикувай" : "✓ Одобри и публикувай"}</button><button disabled={Boolean(busy)} className="rounded-lg border border-white/20 px-4 py-2 text-sm" onClick={()=>editing(r)}>Редактирай</button><button disabled={Boolean(busy)} className="rounded-lg px-4 py-2 text-sm text-red-300 hover:bg-red-950/40" onClick={()=>void decision(r,"reject")}>Отхвърли</button></div>}
+            {r.status==="draft" && r.kind==="prediction" && !!r.validation?.length && !r.manualApprovalValidation?.length &&
+              <p className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-100">Без независими проверки: при одобрение прогнозата ще бъде видима като ръчно одобрена и непотвърдена.</p>}
+            {r.status==="draft" && !!(r.kind==="prediction" ? r.manualApprovalValidation?.length : r.validation?.length) &&
+              <div className="mt-4 rounded-xl bg-amber-400/10 px-4 py-3 text-sm text-amber-100"><b>Поправи основните данни преди публикуване:</b><ul className="mt-2 list-disc space-y-1 pl-5">{(r.kind==="prediction" ? r.manualApprovalValidation || [] : r.validation || []).map((item,i)=><li key={i}>{item}</li>)}</ul></div>}
+            {decisionError?.id===r.id && <p role="alert" className="mt-4 rounded-xl border border-red-400/40 bg-red-950/40 p-3 text-sm text-red-200">{decisionError.message}</p>}
+            {r.status==="draft" && <div className="mt-5 flex flex-wrap gap-2"><button disabled={Boolean(busy)} className="rounded-lg bg-lime-400 px-4 py-2 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-35" onClick={()=>void decision(r,"publish")}>{busy===r.id?"Публикуване...":"✓ Одобри и публикувай"}</button><button disabled={Boolean(busy)} className="rounded-lg border border-white/20 px-4 py-2 text-sm" onClick={()=>editing(r)}>Редактирай</button><button disabled={Boolean(busy)} className="rounded-lg px-4 py-2 text-sm text-red-300 hover:bg-red-950/40" onClick={()=>void decision(r,"reject")}>Отхвърли</button></div>}
           </article>)}</div>}
         <p className="mt-10 text-center text-xs leading-6 text-white/35">BAZARSPORT · Всички публикувания са с решение на собственика. Няма гарантирана печалба. 18+ · Виртуална статистика.</p>
       </div>
