@@ -68,3 +68,23 @@ D1 binding `DB` сочи **само към новата празна база**.
 7. **НЕ сменяй** production домейна `bazarsport.eu`, докато не е проверена експорт/възстановяване на всички исторически данни от Sites DB.
 
 Сегашният `cloudflare-access` режим остава като алтернативен, но в `wrangler.staging.jsonc` е избран `github-oauth`. Zero Trust акаунт и банкова карта не са нужни за OAuth в GitHub, но съответните лимити и billing на Cloudflare Workers Free трябва да се проверят отделно.
+
+
+## Нов безопасен първи релийз (само след преглед от собственика)
+
+След успешни `npm test`, `npm run typecheck`, `npm run build:staging` и `npm run deploy:staging -- --dry-run`, кодът допуска **само изрично разрешено** създаване на **непубличен staging Worker**. Командата проверява името `bazarsport-staging`, точния staging DB ID, GitHub OAuth auth mode и забранява `workers_dev`, `preview_urls`, маршрути и custom domains. В нея няма DNS действия и няма промяна на основния Sites проект.
+
+- Cloudflare Workers Builds Git repository: `slavov000123-cmd/bazarsport`
+- **Production branch на този staging Worker:** `setup/cloudflare-staging-db-binding` (**НЕ `main`**)
+- Worker / project name: `bazarsport-staging`
+- Build command: `npm run install:ci && npm test && npm run typecheck && npm run build:staging`
+- Deploy command за **първи безопасен upload**: `BAZARSPORT_STAGING_RELEASE=1 npm run deploy:staging -- --release`
+- Preview builds: **off**
+- GitHub repository code review: `https://github.com/slavov000123-cmd/bazarsport/pull/8`
+
+Задаването на тази deploy команда само по себе си **не** прави тестовия Worker публичен: `workers_dev=false`, `preview_urls=false` и няма routes. Ако проектът вече съществува в акаунта под друго име, не продължавайте до разрешаване на конфликта.
+
+**Важно:** Този първи релийз създава само затворен, неизползваем отвън Worker. След като го има, задайте секретите в Cloudflare Dashboard и проверете отделно D1 schema, GitHub OAuth callback и защитите. Публичен тестов адрес може да се разреши чак след изрична security проверка. Не включвайте `workers_dev` преди това. Няма гаранция, че Cloudflare Workers Free покрива всички бъдещи потребности; следете квотите.
+
+За всеки следващ commit към посочения branch Workers Builds ще опитва същия защитен staging deploy. Това е **само staging**, не production `bazarsport.eu`.
+
