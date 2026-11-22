@@ -1,9 +1,25 @@
 import handler from "vinext/server/fetch-handler";
 import { runWithConnectorBinding } from "../lib/connector-context";
 import type { ConnectorBinding } from "../lib/connector-contract.mjs";
+import { authenticateStagingRequest } from "../lib/cloudflare-access";
 
 const worker = {
-  fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
+  async fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
+    // A separate Cloudflare staging Worker must verify signed Access identity
+    // before forwarding anything to existing Sites-compatible routes.
+    if (env.BAZARSPORT_AUTH_MODE === "cloudflare-access") {
+      const authenticated = await authenticateStagingRequest(request, env);
+      if (!authenticated) {
+        return new Response("Access denied", {
+          status: 403,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
+      request = authenticated;
+    } else if (env.BAZARSPORT_AUTH_MODE && env.BAZARSPORT_AUTH_MODE !== "sites") {
+      return new Response("Authentication configuration error", { status: 503 });
+    }
+
     let binding = ctx.props?.CONNECTORS;
     // Local preview emulates the same request-scoped capability. This branch and
     // the auxiliary service binding are absent from production builds.
