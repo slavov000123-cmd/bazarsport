@@ -128,3 +128,19 @@ assert.equal(publicData.predictions[0].approvedBy,undefined);
 assert.equal(publicData.predictions[0].payload.selections[0].slipImage,undefined);
 const invalidProtocol=structuredClone(quant);invalidProtocol.payload.selections[0].sources=['javascript://a.example/x','https://b.example/x'];assert.ok(publicationErrors(invalidProtocol).length);
 console.log('PASS: private identity/slip images excluded; non-HTTP sources rejected');
+
+// Explicit admin approval overrides editorial warnings, never invents an outcome.
+context.getDb=()=>({select:()=>({from:()=>({where:()=>{const rows=sequence.shift();return {limit:async()=>rows,then:resolve=>resolve(rows)};}})}),update:()=>({set:v=>({where:()=>({returning:async()=>{updates.push(v);return [{id:current.id}];}})})}),insert:()=>({values:async()=>{}})});
+current={id:'old-pick',kind:'prediction',status:'draft',title:'Old pick',revision:1,payload:JSON.stringify({...manual.payload,selections:manual.payload.selections.map(s=>({...s,kickoff:'2020-01-01T12:00:00Z'}))})};
+sequence=[[current]];updates=[];
+await context.exports.decideDraft(current.id,'publish','owner',false,true);
+assert.equal(updates[0].status,'published');
+const ownerResult={predictionId:'parent',outcome:'LOSS',sources:[],checkedAt:'',description:''};
+current={id:'owner-result',kind:'result',status:'draft',title:'Owner result',referenceId:'parent',revision:1,payload:JSON.stringify(ownerResult)};
+sequence=[[current],[parent],[]];updates=[];
+await context.exports.decideDraft(current.id,'publish','owner',false,true);
+const ownerPublished=JSON.parse(updates[0].payload);
+assert.equal(ownerPublished.outcome,'LOSS');assert.equal(ownerPublished.approvalMode,'owner_confirmation');assert.equal(ownerPublished.cornerResults,undefined);assert.equal(ownerPublished.checkedAt,'');
+sequence=[[{...current,status:'published'}]];updates=[];
+await context.exports.decideDraft(current.id,'publish','owner',false,true);assert.equal(updates.length,0);
+console.log('PASS: explicit owner approval overrides editorial warnings, retains chosen outcome and safely handles repeated clicks');

@@ -83,14 +83,8 @@ export default function AdminBoard({ owner }: { owner: string }) {
     finally { setBusy(""); }
   };
   const decision = async (record: Entry, action: "publish" | "reject") => {
-    const manualApproval = action === "publish" && record.kind === "prediction";
+    const manualApproval = action === "publish";
     setDecisionError(null);
-    if (manualApproval && record.manualApprovalValidation?.length) {
-      const message = "Преди публикуване поправи: " + record.manualApprovalValidation.join(" ");
-      setDecisionError({id: record.id, message});
-      return;
-    }
-    if (action === "publish" && !manualApproval && !confirm("Да публикувам ли „" + record.title + "“?")) return;
     if (action === "reject" && !confirm("Да отхвърля ли черновата „" + record.title + "“?")) return;
     setBusy(record.id); setError(""); setSuccess("");
     try {
@@ -221,7 +215,7 @@ export default function AdminBoard({ owner }: { owner: string }) {
             {r.status==="draft" && r.kind==="prediction" && !!r.validation?.length && !r.manualApprovalValidation?.length &&
               <p className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-100">Без независими проверки: при одобрение прогнозата ще бъде видима като ръчно одобрена и непотвърдена.</p>}
             {r.status==="draft" && !!(r.kind==="prediction" ? r.manualApprovalValidation?.length : r.validation?.length) &&
-              <div className="mt-4 rounded-xl bg-amber-400/10 px-4 py-3 text-sm text-amber-100"><b>Поправи основните данни преди публикуване:</b><ul className="mt-2 list-disc space-y-1 pl-5">{(r.kind==="prediction" ? r.manualApprovalValidation || [] : r.validation || []).map((item,i)=><li key={i}>{item}</li>)}</ul></div>}
+              <div className="mt-4 rounded-xl bg-amber-400/10 px-4 py-3 text-sm text-amber-100"><b>Предупреждения (не блокират твоето одобрение):</b><ul className="mt-2 list-disc space-y-1 pl-5">{(r.kind==="prediction" ? r.manualApprovalValidation || [] : r.validation || []).map((item,i)=><li key={i}>{item}</li>)}</ul></div>}
             {decisionError?.id===r.id && <p role="alert" className="mt-4 rounded-xl border border-red-400/40 bg-red-950/40 p-3 text-sm text-red-200">{decisionError.message}</p>}
             {r.status==="draft" && <div className="mt-5 flex flex-wrap gap-2"><button disabled={Boolean(busy)} className="rounded-lg bg-lime-400 px-4 py-2 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-35" onClick={()=>void decision(r,"publish")}>{busy===r.id?"Публикуване...":"✓ Одобри и публикувай"}</button><button disabled={Boolean(busy)} className="rounded-lg border border-white/20 px-4 py-2 text-sm" onClick={()=>editing(r)}>Редактирай</button><button disabled={Boolean(busy)} className="rounded-lg px-4 py-2 text-sm text-red-300 hover:bg-red-950/40" onClick={()=>void decision(r,"reject")}>Отхвърли</button></div>}
           </article>)}</div>}
