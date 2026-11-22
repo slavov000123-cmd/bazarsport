@@ -110,6 +110,10 @@ export async function githubOwnerGateway(
   const origin = env.GITHUB_AUTH_ORIGIN!;
   const url = new URL(request.url);
   if (url.origin !== origin) return denied();
+  // Require an exact same-origin proof for cookie-authenticated mutations.
+  // This also covers logout, regardless of downstream route implementation.
+  if (!["GET", "HEAD", "OPTIONS"].includes(request.method) &&
+      (request.headers.get("origin") !== origin || request.headers.get("sec-fetch-site") === "cross-site")) return denied();
   const cookie = cookies(request);
   const secret = env.AUTH_SESSION_KEY!;
   const callback = origin + "/auth/github/callback";
@@ -182,7 +186,12 @@ export async function githubOwnerGateway(
   }
 
   if (url.pathname === "/signout-with-chatgpt") {
-    if (request.method !== "GET" && request.method !== "POST") return denied();
+    if (request.method === "GET") {
+      return new Response('<!doctype html><html lang="bg"><meta charset="utf-8"><title>BAZARSPORT</title><form method="post" action="/signout-with-chatgpt?return_to=%2F"><button type="submit">Изход / Sign out</button></form></html>', {
+        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'" },
+      });
+    }
+    if (request.method !== "POST") return denied();
     const response = redirect(safeReturnTo(url.searchParams.get("return_to")));
     response.headers.append("Set-Cookie", setCookie(sessionCookie, "", 0));
     response.headers.append("Set-Cookie", setCookie(flowCookie, "", 0));

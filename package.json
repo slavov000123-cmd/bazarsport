@@ -14,7 +14,8 @@
     "db:generate": "drizzle-kit generate",
     "test": "node tests/editorial.test.mjs && node tests/prediction-views.test.mjs && node tests/i18n.test.mjs && node tests/security.test.mjs && node tests/cloudflare-access.test.mjs && node tests/github-owner-auth.test.mjs",
     "typecheck": "tsc --noEmit",
-    "build:staging": "node scripts/build-staging.mjs"
+    "build:staging": "node scripts/build-staging.mjs",
+    "deploy:staging": "node scripts/deploy-staging.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

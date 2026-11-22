@@ -104,7 +104,7 @@ const malformed = await githubOwnerGateway(new Request(base + "/admin", {
 }), env, mock);
 assert.equal(malformed.headers.get("oai-authenticated-user-id"), null);
 
-const signout = await githubOwnerGateway(new Request(base + "/signout-with-chatgpt?return_to=%2F"), env, mock);
+const signout = await githubOwnerGateway(new Request(base + "/signout-with-chatgpt?return_to=%2F", { method: "POST", headers: { Origin: base } }), env, mock);
 assert.equal(signout.status, 302);
 assert.equal(signout.headers.get("location"), "/");
 assert.match(signout.headers.getSetCookie().join("\n"), /Max-Age=0/);
@@ -117,3 +117,15 @@ const maliciousLogin = await githubOwnerGateway(new Request(base + "/auth/github
 }), env, mock);
 assert.equal(maliciousLogin.headers.get("location"), "/admin");
 console.log("PASS: GitHub owner OAuth uses PKCE, state, signed cookies and rejects forged identity");
+
+for (const origin of [undefined, "https://evil.test"]) {
+  const headers = { Cookie: sessionCookie };
+  if (origin) headers.Origin = origin;
+  for (const path of ["/api/drafts", "/signout-with-chatgpt"]) {
+    assert.equal((await githubOwnerGateway(new Request(base + path, { method: "POST", headers }), env, mock)).status, 403);
+  }
+}
+assert.equal((await githubOwnerGateway(new Request(base + "/signout-with-chatgpt"), env, mock)).headers.get("set-cookie"), null);
+const sameOrigin = await githubOwnerGateway(new Request(base + "/api/drafts", { method: "POST", headers: { Origin: base, Cookie: sessionCookie } }), env, mock);
+assert.equal(sameOrigin.headers.get("oai-authenticated-user-id"), "github:334568071");
+console.log("PASS: same-origin mutations only; GET logout cannot clear the session");

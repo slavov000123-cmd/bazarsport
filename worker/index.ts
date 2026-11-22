@@ -4,8 +4,15 @@ import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 import { authenticateStagingRequest } from "../lib/cloudflare-access";
 import { githubOwnerGateway } from "../lib/github-owner-auth";
 
+declare const __BAZARSPORT_STANDALONE__: boolean;
+
 const worker = {
   async fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
+    // Standalone artifacts must NEVER fall back to trusted Sites headers,
+    // even if someone removes or overrides runtime configuration.
+    if (__BAZARSPORT_STANDALONE__ && env.BAZARSPORT_AUTH_MODE !== "github-oauth") {
+      return new Response("Authentication configuration error", { status: 503 });
+    }
     // A separate Cloudflare staging Worker must verify signed Access identity
     // before forwarding anything to existing Sites-compatible routes.
     if (env.BAZARSPORT_AUTH_MODE === "github-oauth") {
