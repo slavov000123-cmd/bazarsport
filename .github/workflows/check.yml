@@ -17,3 +17,4 @@ jobs:
       - run: npm run build
       # Validate independent Cloudflare staging output; this does NOT deploy.
       - run: npm run build:staging
+      - run: npm run deploy:staging -- --dry-run
