@@ -46,3 +46,25 @@ D1 binding `DB` сочи **само към новата празна база**.
 6. Остави `workers_dev:false` и `preview_urls:false`, докато тестването на входа не приключи; тогава осигури Access защита и контролирана test URL.
 
 **Сигурност:** Не включвай автоматичен deploy от `main` или от staging клона, преди да са преминали интеграционните тестове и да е проверен пътят за backup/restore. Production остава в Sites.
+
+## Без карта: вход с GitHub OAuth (предпочитан за новата staging среда)
+
+Кодът е добавен в `lib/github-owner-auth.ts`, с тестове в `tests/github-owner-auth.test.mjs`. Използва GitHub OAuth Authorization Code + PKCE + random state и подписана с HMAC, HttpOnly+Secure+SameSite=Lax сесия с продължителност 12 часа. Сървърът проверява **числовия GitHub User ID `334568071`**, а не само имейл/име, след `GET https://api.github.com/user`. Няма нужда от GitHub достъп до репото от страна на сайта; OAuth scope е `read:user`.
+
+**Настройката НЕ е готова за публичен deployment.** За да работи, собственикът трябва:
+
+1. Да избере защитен тестов URL на отделен Workers.dev Worker `bazarsport-staging` и да потвърди точния `https://...workers.dev` origin. `workers_dev` трябва временно да се включи едва след тест на auth и целия staging build (в момента е изключен).
+2. В GitHub → Settings → Developer settings → OAuth Apps → New OAuth App да регистрира `BAZARSPORT Staging` със **Homepage URL** равен на тестовия origin и **Authorization callback URL** точно `https://<test-origin>/auth/github/callback`.
+3. Да конфигурира Cloudflare Worker runtime настройките:
+    - `GITHUB_AUTH_ORIGIN`: публичният HTTPS origin на staging сайта (без slash в края);
+    - `GITHUB_CLIENT_ID`: публичният идентификатор на GitHub OAuth приложението;
+    - `GITHUB_CLIENT_SECRET`: **Secret**, който не се записва в GitHub и не се изпраща в чат;
+    - `AUTH_SESSION_KEY`: **Secret** — независим, случаен 32+ байтов ключ/низ; не в GitHub/чат;
+    - `OWNER_EMAIL`: имейл на администратора, като runtime secret/настройка;
+    - `GITHUB_OWNER_ID`: `334568071` (GitHub публичен numeric user ID от свързаното хранилище).
+4. `BAZARSPORT_AUTH_MODE=github-oauth` се използва в отделната staging конфигурация. При непълни тайни/конфигурация Worker връща 503 вместо да позволява неоторизиран достъп.
+5. Да тества login, logout, anonymous browsing, подправени identity headers, CSRF защита, timeout на сесия, и одобряване само от собственика.
+6. Да приложи D1 schema само към празната staging база, да провери графично и API, и после да разгледа GitHub auto deploy само в staging.
+7. **НЕ сменяй** production домейна `bazarsport.eu`, докато не е проверена експорт/възстановяване на всички исторически данни от Sites DB.
+
+Сегашният `cloudflare-access` режим остава като алтернативен, но в `wrangler.staging.jsonc` е избран `github-oauth`. Zero Trust акаунт и банкова карта не са нужни за OAuth в GitHub, но съответните лимити и billing на Cloudflare Workers Free трябва да се проверят отделно.
