@@ -67,7 +67,7 @@ export default defineConfig(async ({ command }) => {
         inspectorPort: false,
         config: {
           ...(stagingBuild
-            ? { main: "./worker/index.ts", compatibility_flags: ["nodejs_compat"] }
+            ? { main: "./worker/index.ts" }
             : localBindingConfig),
           ...(command === "serve"
             ? {
