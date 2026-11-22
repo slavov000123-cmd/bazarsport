@@ -2,12 +2,17 @@ import handler from "vinext/server/fetch-handler";
 import { runWithConnectorBinding } from "../lib/connector-context";
 import type { ConnectorBinding } from "../lib/connector-contract.mjs";
 import { authenticateStagingRequest } from "../lib/cloudflare-access";
+import { githubOwnerGateway } from "../lib/github-owner-auth";
 
 const worker = {
   async fetch(request: Request, env: Cloudflare.Env, ctx: ExecutionContext<{ CONNECTORS?: ConnectorBinding }>) {
     // A separate Cloudflare staging Worker must verify signed Access identity
     // before forwarding anything to existing Sites-compatible routes.
-    if (env.BAZARSPORT_AUTH_MODE === "cloudflare-access") {
+    if (env.BAZARSPORT_AUTH_MODE === "github-oauth") {
+      const authenticated = await githubOwnerGateway(request, env);
+      if (authenticated instanceof Response) return authenticated;
+      request = authenticated;
+    } else if (env.BAZARSPORT_AUTH_MODE === "cloudflare-access") {
       const authenticated = await authenticateStagingRequest(request, env);
       if (!authenticated) {
         return new Response("Access denied", {
