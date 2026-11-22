@@ -15,6 +15,10 @@ const { d1, r2 } = hostingConfig;
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 const managedLinux = readExecutionProfile() === "managed-linux";
 
+// The standalone Cloudflare test build is strictly opt-in and uses its own
+// Wrangler config and D1 ID. The default Sites build stays untouched.
+const stagingBuild = process.env.BAZARSPORT_STAGING_BUILD === "1";
+
 const localBindingConfig = {
   main: "./worker/index.ts",
   compatibility_flags: ["nodejs_compat"],
@@ -44,6 +48,7 @@ export default defineConfig(async ({ command }) => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    define: { __BAZARSPORT_STANDALONE__: JSON.stringify(stagingBuild) },
     server: {
       ...(managedLinux
         ? { host: "0.0.0.0", allowedHosts: ["terminal.local"] }
@@ -57,10 +62,13 @@ export default defineConfig(async ({ command }) => {
       sites({ mockAuth: !managedLinux }),
       connectorPreview(),
       cloudflare({
+        ...(stagingBuild ? { configPath: "./wrangler.staging.jsonc" } : {}),
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
         config: {
-          ...localBindingConfig,
+          ...(stagingBuild
+            ? { main: "./worker/index.ts" }
+            : localBindingConfig),
           ...(command === "serve"
             ? {
                 services: [

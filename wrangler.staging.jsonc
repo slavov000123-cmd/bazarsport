@@ -1,0 +1,24 @@
+{
+  // STAGING-ONLY REFERENCE. This is NOT picked up by default Wrangler or Vite.
+  // DO NOT deploy this app before verifying GitHub OAuth configuration (GITHUB_CLIENT_ID,
+  // GITHUB_CLIENT_SECRET, AUTH_SESSION_KEY, GITHUB_AUTH_ORIGIN, OWNER_EMAIL),
+  // migrations and staging build. Never put OAuth secrets in this file.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "bazarsport-staging",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-05-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    "BAZARSPORT_AUTH_MODE": "github-oauth",
+    "GITHUB_OWNER_ID": "334568071"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "bazarsport-staging",
+      "database_id": "660089ce-a295-4f89-b863-8d335d02ac69"
+    }
+  ]
+}
