@@ -44,6 +44,7 @@ export type ResultPayload = {
   sources: string[];
   description: string;
   cornerResults?: { home: number; away: number }[];
+  approvalMode?: "owner_confirmation";
   cornerVerificationMethod?: "owner_confirmation" | "recorded_counts";
 };
 
@@ -167,19 +168,21 @@ export async function decideDraft(id: string, action: "publish" | "reject", acto
   const db = getDb();
   const rows = await db.select().from(entries).where(eq(entries.id, id)).limit(1);
   const row = rows[0];
+  if (row?.status === "published" && action === "publish") return { id, status: "published" };
   if (!row || row.status !== "draft") throw Error("Черновата не е налична или вече е обработена.");
   const input = { kind: row.kind, title: row.title, payload: JSON.parse(row.payload) } as EntryInput;
   if (action === "publish") {
-    const canManualApprove = manualApproval === true && input.kind === "prediction";
+    const canManualApprove = manualApproval === true;
+    validateStoredInput(input);
     const canConfirmFixtures = !canManualApprove && ownerConfirmsFixtures === true && input.kind === "prediction" && (input.payload as PredictionPayload).category === "elite";
-    const errors = publicationErrors(input, canConfirmFixtures, canManualApprove);
+    const errors = canManualApprove ? [] : publicationErrors(input, canConfirmFixtures);
     if (row.kind === "result") {
       const ref = await db.select().from(entries).where(and(eq(entries.id, row.referenceId || ""), eq(entries.kind, "prediction"), eq(entries.status, "published"))).limit(1);
       if (!ref[0]) errors.push("Резултатът трябва да е свързан с публикувана прогноза.");
-      else if (Date.parse((input.payload as ResultPayload).checkedAt) < Math.max(...(JSON.parse(ref[0].payload) as PredictionPayload).selections.map(s=>Date.parse(s.kickoff)))) {
+      else if (!canManualApprove && Date.parse((input.payload as ResultPayload).checkedAt) < Math.max(...(JSON.parse(ref[0].payload) as PredictionPayload).selections.map(s=>Date.parse(s.kickoff)))) {
         errors.push("Резултатът е проверен преди началото на един от мачовете.");
       }
-      if (ref[0]) {
+      if (ref[0] && !canManualApprove) {
         const parent = JSON.parse(ref[0].payload) as PredictionPayload;
         const result = input.payload as ResultPayload;
         if (parent.category === "elite" && ["WIN", "LOSS"].includes(result.outcome)) {
@@ -199,8 +202,13 @@ export async function decideDraft(id: string, action: "publish" | "reject", acto
       if (previous.length) errors.push("За тази прогноза вече има публикуван резултат.");
     }
     if (errors.length) throw Error(errors.join(" "));
-    if (canManualApprove) {
+    if (canManualApprove && input.kind === "prediction") {
       (input.payload as PredictionPayload).approvalMode = "owner_unverified";
+    }
+    if (canManualApprove && input.kind === "result") {
+      const result = input.payload as ResultPayload;
+      if (!["WIN", "LOSS", "VOID", "UNVERIFIED"].includes(result.outcome)) throw Error("Избери WIN, LOSS, VOID или UNVERIFIED.");
+      result.approvalMode = "owner_confirmation";
     }
     if (canConfirmFixtures) {
       const checkedAt = new Date().toISOString();
@@ -215,7 +223,7 @@ export async function decideDraft(id: string, action: "publish" | "reject", acto
     updatedAt: now, revision: row.revision + 1,
   }).where(and(eq(entries.id, id), eq(entries.status, "draft"))).returning({ id: entries.id });
   if (!changed.length) throw Error("Черновата е променена; обнови екрана.");
-  await recordAudit(id, actor, action === "publish" ? (input.kind === "result" && (input.payload as ResultPayload).cornerVerificationMethod === "owner_confirmation" ? "result_confirmed_by_owner_without_corner_counts" : manualApproval === true && input.kind === "prediction" ? "published_by_owner_unverified" : ownerConfirmsFixtures === true && input.kind === "prediction" && (input.payload as PredictionPayload).category === "elite" ? "published_by_owner_with_fixture_confirmation" : "published_by_owner") : "rejected_by_owner");
+  await recordAudit(id, actor, action === "publish" ? (manualApproval === true && input.kind === "result" ? "result_confirmed_by_owner" : input.kind === "result" && (input.payload as ResultPayload).cornerVerificationMethod === "owner_confirmation" ? "result_confirmed_by_owner_without_corner_counts" : manualApproval === true && input.kind === "prediction" ? "published_by_owner_unverified" : ownerConfirmsFixtures === true && input.kind === "prediction" && (input.payload as PredictionPayload).category === "elite" ? "published_by_owner_with_fixture_confirmation" : "published_by_owner") : "rejected_by_owner");
   return { id, status: action === "publish" ? "published" : "rejected" };
 }
 
