@@ -44,6 +44,7 @@ export type ResultPayload = {
   sources: string[];
   description: string;
   cornerResults?: { home: number; away: number }[];
+  cornerVerificationMethod?: "owner_confirmation" | "recorded_counts";
 };
 
 export type EntryInput = {
@@ -183,8 +184,15 @@ export async function decideDraft(id: string, action: "publish" | "reject", acto
         const result = input.payload as ResultPayload;
         if (parent.category === "elite" && ["WIN", "LOSS"].includes(result.outcome)) {
           const corners = result.cornerResults;
-          if (!corners || corners.length !== parent.selections.length || corners.some(c => !Number.isInteger(c.home) || !Number.isInteger(c.away) || c.home < 0 || c.away < 0)) errors.push("Въведи проверените корнери 1П за всяка селекция.");
-          else if (result.outcome !== (corners.every(c => c.home > c.away) ? "WIN" : "LOSS")) errors.push("Неправилен CORNER HUNTER резултат: равенство или по-малко корнери на домакина е LOSS.");
+          if (corners == null || (Array.isArray(corners) && corners.length === 0)) {
+            delete result.cornerResults;
+            result.cornerVerificationMethod = "owner_confirmation";
+          } else if (!Array.isArray(corners) || corners.length !== parent.selections.length || corners.some(c => !c || !Number.isInteger(c.home) || !Number.isInteger(c.away) || c.home < 0 || c.away < 0)) {
+            errors.push("Поправи въведените корнери 1П или остави полето празно за лично потвърждение.");
+          } else {
+            result.cornerVerificationMethod = "recorded_counts";
+            if (result.outcome !== (corners.every(c => c.home > c.away) ? "WIN" : "LOSS")) errors.push("Неправилен CORNER HUNTER резултат: равенство или по-малко корнери на домакина е LOSS.");
+          }
         }
       }
       const previous = await db.select().from(entries).where(and(eq(entries.referenceId, row.referenceId || ""), eq(entries.kind, "result"), eq(entries.status, "published")));
@@ -202,12 +210,12 @@ export async function decideDraft(id: string, action: "publish" | "reject", acto
   const now = new Date().toISOString();
   const changed = await db.update(entries).set({
     status: action === "publish" ? "published" : "rejected",
-    ...(action === "publish" && (manualApproval === true && input.kind === "prediction" || ownerConfirmsFixtures === true && input.kind === "prediction" && (input.payload as PredictionPayload).category === "elite") ? {payload:JSON.stringify(input.payload)} : {}),
+    ...(action === "publish" && (input.kind === "result" || manualApproval === true && input.kind === "prediction" || ownerConfirmsFixtures === true && input.kind === "prediction" && (input.payload as PredictionPayload).category === "elite") ? {payload:JSON.stringify(input.payload)} : {}),
     approvedBy: actor, publishedAt: action === "publish" ? now : null,
     updatedAt: now, revision: row.revision + 1,
   }).where(and(eq(entries.id, id), eq(entries.status, "draft"))).returning({ id: entries.id });
   if (!changed.length) throw Error("Черновата е променена; обнови екрана.");
-  await recordAudit(id, actor, action === "publish" ? (manualApproval === true && input.kind === "prediction" ? "published_by_owner_unverified" : ownerConfirmsFixtures === true && input.kind === "prediction" && (input.payload as PredictionPayload).category === "elite" ? "published_by_owner_with_fixture_confirmation" : "published_by_owner") : "rejected_by_owner");
+  await recordAudit(id, actor, action === "publish" ? (input.kind === "result" && (input.payload as ResultPayload).cornerVerificationMethod === "owner_confirmation" ? "result_confirmed_by_owner_without_corner_counts" : manualApproval === true && input.kind === "prediction" ? "published_by_owner_unverified" : ownerConfirmsFixtures === true && input.kind === "prediction" && (input.payload as PredictionPayload).category === "elite" ? "published_by_owner_with_fixture_confirmation" : "published_by_owner") : "rejected_by_owner");
   return { id, status: action === "publish" ? "published" : "rejected" };
 }
 

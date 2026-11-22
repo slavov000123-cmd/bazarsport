@@ -52,6 +52,23 @@ const resultPayload={...result.payload,predictionId:'parent',sources:['https://a
 current={id:'result-draft',kind:'result',status:'draft',title:'Result',referenceId:'parent',revision:1,payload:JSON.stringify(resultPayload)};
 sequence=[[current],[parent],[]];await assert.rejects(context.exports.decideDraft('result-draft','publish','owner'),/LOSS/);
 current.payload=JSON.stringify({...resultPayload,outcome:'LOSS'});sequence=[[current],[parent],[]];await context.exports.decideDraft('result-draft','publish','owner');
+// Exact corner counts are optional for owner-confirmed results, never invented.
+for (const counts of [undefined, []]) {
+  current.payload=JSON.stringify({...resultPayload,cornerResults:counts});
+  sequence=[[current],[parent],[]]; updates=[];
+  await context.exports.decideDraft('result-draft','publish','owner');
+  const published=JSON.parse(updates[0].payload);
+  assert.equal(published.outcome,'WIN');
+  assert.equal(published.cornerVerificationMethod,'owner_confirmation');
+  assert.equal(published.cornerResults,undefined);
+}
+current.payload=JSON.stringify({...resultPayload,cornerResults:[{home:-1,away:2}]});
+sequence=[[current],[parent],[]];
+await assert.rejects(context.exports.decideDraft('result-draft','publish','owner'),/корнери/);
+current.payload=JSON.stringify({...resultPayload,cornerResults:undefined});
+sequence=[[current],[parent],[{id:'existing'}]];
+await assert.rejects(context.exports.decideDraft('result-draft','publish','owner'),/вече има/);
+console.log('PASS: owner-confirmed results without fabricated corner counts; malformed counts and duplicate results rejected');
 // Unverified outcomes are excluded from actual public-report metrics.
 const reportRows=[parent,{id:'unknown',kind:'result',status:'published',title:'Unknown',payload:JSON.stringify({...resultPayload,outcome:'UNVERIFIED'})}];parent.title='QuantBet ELITE';
 context.getDb=()=>({select:()=>({from:()=>({where:()=>({orderBy:async()=>reportRows})})})});
